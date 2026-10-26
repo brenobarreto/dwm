@@ -173,6 +173,7 @@ static void expose(XEvent *e);
 static void focus(Client *c);
 static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
+static Client *dirclient(int dir, int tiledonly);
 static void focusdir(const Arg *arg);
 static void focusstack(const Arg *arg);
 static Atom getatomprop(Client *c, Atom prop);
@@ -212,6 +213,7 @@ static void setup(void);
 static void seturgent(Client *c, int urg);
 static void showhide(Client *c);
 static void spawn(const Arg *arg);
+static void swapdir(const Arg *arg);
 static void tag(const Arg *arg);
 static void tagmon(const Arg *arg);
 static void togglebar(const Arg *arg);
@@ -849,24 +851,22 @@ focusmon(const Arg *arg)
 	focus(NULL);
 }
 
-void
-focusdir(const Arg *arg)
+Client *
+dirclient(int dir, int tiledonly)
 {
-	/* arg->i: 0 = left, 1 = right, 2 = up, 3 = down */
+	/* dir: 0 = left, 1 = right, 2 = up, 3 = down */
 	Client *c, *best = NULL;
 	long dx, dy, main, cross, score, bestscore = 0;
 	int cx, cy;
 
-	if (!selmon->sel || (selmon->sel->isfullscreen && lockfullscreen))
-		return;
 	cx = selmon->sel->x + WIDTH(selmon->sel) / 2;
 	cy = selmon->sel->y + HEIGHT(selmon->sel) / 2;
 	for (c = selmon->clients; c; c = c->next) {
-		if (c == selmon->sel || !ISVISIBLE(c))
+		if (c == selmon->sel || !ISVISIBLE(c) || (tiledonly && c->isfloating))
 			continue;
 		dx = c->x + WIDTH(c) / 2 - cx;
 		dy = c->y + HEIGHT(c) / 2 - cy;
-		switch (arg->i) {
+		switch (dir) {
 		case 0: main = -dx; cross = dy; break;
 		case 1: main =  dx; cross = dy; break;
 		case 2: main = -dy; cross = dx; break;
@@ -878,13 +878,23 @@ focusdir(const Arg *arg)
 		score = main + 2 * labs(cross);
 		/* near-ties go to the top (or left) window */
 		if (!best || score < bestscore - 20
-		|| (score <= bestscore + 20 && (arg->i < 2 ? c->y < best->y : c->x < best->x))) {
+		|| (score <= bestscore + 20 && (dir < 2 ? c->y < best->y : c->x < best->x))) {
 			best = c;
 			bestscore = score;
 		}
 	}
-	if (best) {
-		focus(best);
+	return best;
+}
+
+void
+focusdir(const Arg *arg)
+{
+	Client *c;
+
+	if (!selmon->sel || (selmon->sel->isfullscreen && lockfullscreen))
+		return;
+	if ((c = dirclient(arg->i, 0))) {
+		focus(c);
 		restack(selmon);
 	}
 }
@@ -1726,6 +1736,22 @@ spawn(const Arg *arg)
 		execvp(((char **)arg->v)[0], (char **)arg->v);
 		die("dwm: execvp '%s' failed:", ((char **)arg->v)[0]);
 	}
+}
+
+void
+swapdir(const Arg *arg)
+{
+	Client *a = selmon->sel, *b, *t;
+	Client **pa, **pb;
+
+	if (!a || a->isfloating || a->isfullscreen || !(b = dirclient(arg->i, 1)))
+		return;
+	/* swap the two clients' places in the client list */
+	for (pa = &selmon->clients; *pa != a; pa = &(*pa)->next);
+	for (pb = &selmon->clients; *pb != b; pb = &(*pb)->next);
+	t = *pa; *pa = *pb; *pb = t;
+	t = a->next; a->next = b->next; b->next = t;
+	arrange(selmon);
 }
 
 void
